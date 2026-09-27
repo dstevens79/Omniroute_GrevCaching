@@ -154,6 +154,7 @@ export function useLiveDashboard({
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  const authorizationRejectedRef = useRef(false);
 
   const stopPingHeartbeat = useCallback(() => {
     if (pingIntervalRef.current) {
@@ -254,7 +255,17 @@ export function useLiveDashboard({
               }
             }
           } else if (msg.type === "error") {
-            console.error("[LiveWS] Server error:", msg.code, msg.message);
+            if (msg.code === "UNAUTHORIZED") {
+              authorizationRejectedRef.current = true;
+              setConnection((prev) => ({
+                ...prev,
+                isConnecting: false,
+                error: msg.message || "Unauthorized",
+              }));
+              ws.close();
+            } else {
+              console.error("[LiveWS] Server error:", msg.code, msg.message);
+            }
           }
         } catch {
           // Ignore parse errors
@@ -271,7 +282,7 @@ export function useLiveDashboard({
           isConnecting: false,
         }));
 
-        if (autoReconnect) {
+        if (autoReconnect && !authorizationRejectedRef.current) {
           const attempt = connection.reconnectAttempt;
           const delay = WS_RECONNECT_DELAYS[Math.min(attempt, WS_RECONNECT_DELAYS.length - 1)];
           reconnectTimeoutRef.current = setTimeout(() => {
@@ -311,6 +322,7 @@ export function useLiveDashboard({
   useEffect(() => {
     mountedRef.current = true;
     if (!enabled) {
+      authorizationRejectedRef.current = false;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
