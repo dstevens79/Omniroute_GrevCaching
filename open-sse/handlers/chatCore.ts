@@ -1736,6 +1736,14 @@ export async function handleChatCore({
       let grevCompressionStats:
         | import("../services/compression/types.ts").CompressionStats
         | null = null;
+      const grevConversationId = (() => {
+        const suppliedConversation = conversationId || reasoningReplaySessionKey;
+        const generatedConversation = suppliedConversation
+          ? null
+          : generateSessionId(compressionInputBody, { provider });
+        const stableId = suppliedConversation || generatedConversation;
+        return stableId ? `${String(apiKeyInfo?.id ?? "local")}\x1f${stableId}` : null;
+      })();
       if (grevCachingActive) {
         const { appendPreservingCcrEngine } =
           await import("../services/compression/engines/appendPreservingCcr/index.ts");
@@ -1788,6 +1796,12 @@ export async function handleChatCore({
                 skillRequestId,
                 cavemanOutputModeApplied: false,
                 cavemanOutputModeIntensity: null,
+                measurementScope: "message",
+                conversationId: grevConversationId,
+                promptEstimatedTokens: estimateTokens(
+                  (body as Record<string, unknown> | null)?.messages ??
+                    (body as Record<string, unknown> | null)?.input ?? []
+                ),
                 log,
               });
               await compressionAnalyticsWritePromise;
@@ -1802,12 +1816,13 @@ export async function handleChatCore({
         }
       }
       if (grevCachingActive) {
-        const grevSessionKey = [
-          String(apiKeyInfo?.id ?? "local"),
-          provider ?? "unknown-provider",
-          effectiveModel ?? "unknown-model",
-          reasoningReplaySessionKey ?? "shared-session",
-        ].join("\x1f");
+        const grevSessionKey = grevConversationId
+          ? [
+              grevConversationId,
+              provider ?? "unknown-provider",
+              effectiveModel ?? "unknown-model",
+            ].join("\x1f")
+          : null;
         const estimate = prepareGrevCacheHitEstimate(
           grevSessionKey,
           (body as Record<string, unknown> | null)?.messages,
@@ -1871,9 +1886,11 @@ export async function handleChatCore({
           comboName,
           mode: "grevcaching",
           compressionComboId: null,
-          skillRequestId,
+          skillRequestId: `${skillRequestId}::rollover`,
           cavemanOutputModeApplied: false,
           cavemanOutputModeIntensity: null,
+          measurementScope: "rollover",
+          conversationId: grevConversationId,
           log,
         });
         await compressionAnalyticsWritePromise;
